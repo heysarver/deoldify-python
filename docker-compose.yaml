@@ -1,0 +1,14 @@
+version: "3.8"
+services:
+  deoldify-python:
+    image: local/deoldify-python:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
