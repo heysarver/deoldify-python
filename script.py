@@ -12,7 +12,7 @@ from pathlib import Path
 # Command line arguments
 video_path = sys.argv[1]
 render_factor = int(sys.argv[2]) if len(sys.argv) > 2 else 21
-watermarked = sys.argv[3].lower() == 'true' if len(sys.argv) > 3 else True
+watermarked = sys.argv[3].lower() == 'true' if len(sys.argv) > 3 else False
 
 # Setup
 device.set(device=DeviceId.GPU0)

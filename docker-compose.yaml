@@ -5,6 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    volumes:
+      - ./models:/app/models
     deploy:
       resources:
         reservations:
