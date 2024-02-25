@@ -70,9 +70,11 @@ def colorize_frames(input_dir, output_dir):
             previous_frame = cv2.cvtColor(np.array(previous_frame), cv2.COLOR_RGB2BGR)
             result = color_transfer(previous_frame, result)
             result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+        else:
+            result = np.array(result)
 
         # Save colorized frame
-        result.save(os.path.join(output_dir, os.path.basename(frame)))
+        cv2.imwrite(os.path.join(output_dir, os.path.basename(frame)), result)
         previous_frame = result
 
 def reassemble_video(input_dir, output_video):
