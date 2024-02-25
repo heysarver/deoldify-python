@@ -1,3 +1,6 @@
 deoldify
 torch
 fastai
+transformers
+torch
+deoldify
