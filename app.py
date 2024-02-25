@@ -29,14 +29,6 @@ def download_file(url, filename):
                 sys.stdout.flush()
     sys.stdout.write('\n')
 
-# URL of the pre-trained model
-url = "https://huggingface.co/spaces/aryadytm/photo-colorization/resolve/main/models/ColorizeArtistic_gen.pth?download=true"
-
-# Path where the pre-trained model will be saved
-filename = "models/ColorizeArtistic_gen.pth"
-
-download_file(url, filename)
-
 def extract_frames(video_path, output_dir):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -91,6 +83,15 @@ def reassemble_video(input_dir, output_video):
     subprocess.run(cmd, shell=True)
 
 
+def download_model():
+    # URL of the pre-trained model
+    url = "https://huggingface.co/spaces/aryadytm/photo-colorization/resolve/main/models/ColorizeArtistic_gen.pth?download=true"
+
+    # Path where the pre-trained model will be saved
+    filename = "models/ColorizeArtistic_gen.pth"
+
+    download_file(url, filename)
+
 def main(args):
     os.makedirs('models', exist_ok=True)
     video_path = args.file
@@ -102,6 +103,7 @@ def main(args):
     model = get_image_colorizer(artistic=True)
     vis = ModelImageVisualizer(model, results_dir='./')
 
+    download_model()  # Download the model
     extract_frames(video_path, raw_frames_dir)
     colorize_frames(raw_frames_dir, colorized_frames_dir)  # Remove colorizer from here
     reassemble_video(colorized_frames_dir, output_video)
