@@ -71,11 +71,8 @@ def colorize_frames(input_dir, output_dir):
             result = color_transfer(previous_frame, result)
             result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
 
-        # Convert numpy array to PIL Image
-        result_image = Image.fromarray(result)
-
         # Save colorized frame
-        result_image.save(os.path.join(output_dir, os.path.basename(frame)))
+        result.save(os.path.join(output_dir, os.path.basename(frame)))
         previous_frame = result
 
 def reassemble_video(input_dir, output_video):
