@@ -10,6 +10,11 @@ from deoldify import device
 from deoldify.visualize import get_image_colorizer
 from PIL import Image
 
+
+def calculate_mean_std(x):
+    return np.mean(x), np.std(x)
+
+
 def download_file(url, filename):
     with open(filename, 'wb') as f:
         response = requests.get(url, stream=True)
@@ -35,33 +40,83 @@ def extract_frames(video_path, output_dir):
     subprocess.run(cmd, shell=True, check=True)
 
 def color_transfer(source, target):
+    # Convert the images from BGR to LAB color space
     source = cv2.cvtColor(source, cv2.COLOR_BGR2LAB).astype("float32")
     target = cv2.cvtColor(target, cv2.COLOR_BGR2LAB).astype("float32")
 
-    # Compute means and standard deviations for each channel
-    lMeanSrc, aMeanSrc, bMeanSrc = np.mean(source, axis=(0, 1))
-    lMeanTar, aMeanTar, bMeanTar = np.mean(target, axis=(0, 1))
+    # Split the LAB image into different channels
+    l_source, a_source, b_source = cv2.split(source)
+    l_target, a_target, b_target = cv2.split(target)
 
-    lStdSrc, aStdSrc, bStdSrc = np.std(source, axis=(0, 1))
-    lStdTar, aStdTar, bStdTar = np.std(target, axis=(0, 1))
+    # Define a function to calculate the mean and standard deviation
+    def calculate_mean_std(x):
+        return np.mean(x), np.std(x)
+
+    # Calculate the mean and standard deviation for each channel
+    l_mean_source, l_std_source = calculate_mean_std(l_source)
+    a_mean_source, a_std_source = calculate_mean_std(a_source)
+    b_mean_source, b_std_source = calculate_mean_std(b_source)
+
+    l_mean_target, l_std_target = calculate_mean_std(l_target)
+    a_mean_target, a_std_target = calculate_mean_std(a_target)
+    b_mean_target, b_std_target = calculate_mean_std(b_target)
 
     # Subtract the means from the source image
-    source[:,:,0] -= lMeanSrc
-    source[:,:,1] -= aMeanSrc
-    source[:,:,2] -= bMeanSrc
+    l_source -= l_mean_source
+    a_source -= a_mean_source
+    b_source -= b_mean_source
 
     # Scale by the standard deviations
-    source[:,:,0] *= (lStdTar / lStdSrc)
-    source[:,:,1] *= (aStdTar / aStdSrc)
-    source[:,:,2] *= (bStdTar / bStdSrc)
+    l_source *= (l_std_target / l_std_source)
+    a_source *= (a_std_target / a_std_source)
+    b_source *= (b_std_target / b_std_source)
 
     # Add the target means
-    source[:,:,0] += lMeanTar
-    source[:,:,1] += aMeanTar
-    source[:,:,2] += bMeanTar
+    l_source += l_mean_target
+    a_source += a_mean_target
+    b_source += b_mean_target
+
+    # Merge the channels back together
+    transfer = cv2.merge([l_source, a_source, b_source])
 
     # Clip the values to the [0, 255] range, convert back to uint8
-    return cv2.cvtColor(np.clip(source, 0, 255).astype("uint8"), cv2.COLOR_LAB2BGR)
+    transfer = cv2.cvtColor(np.clip(transfer, 0, 255).astype("uint8"), cv2.COLOR_LAB2BGR)
+
+    return transfer
+
+
+
+# Define a function to apply the color transfer
+def apply_color_transfer(previous_frame, frame, l_mean_first, l_std_first):
+    # Convert the frame from BGR to LAB color space
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB).astype("float32")
+    previous_frame = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2LAB).astype("float32")
+
+    # Split the LAB image into different channels
+    l, a, b = cv2.split(frame)
+    l_prev, a_prev, b_prev = cv2.split(previous_frame)
+
+    # Calculate the mean and standard deviation for the l channel
+    l_mean, l_std = calculate_mean_std(l)
+    l_mean_prev, l_std_prev = calculate_mean_std(l_prev)
+
+    # Subtract the mean from the l channel
+    l -= l_mean
+
+    # Scale by the standard deviations
+    l *= (l_std_first / l_std)
+
+    # Add the first frame mean
+    l += l_mean_first
+
+    # Merge the channels back together
+    transfer = cv2.merge([l, a, b])
+
+    # Clip the values to the [0, 255] range, convert back to uint8
+    transfer = cv2.cvtColor(np.clip(transfer, 0, 255).astype("uint8"), cv2.COLOR_LAB2BGR)
+
+    return transfer
+
 
 def colorize_frames(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
@@ -69,15 +124,22 @@ def colorize_frames(input_dir, output_dir):
     frames = sorted([os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith('.png')])
     previous_frame = None
 
-    colorizer = get_image_colorizer(artistic=True, watermarked=False)
+    colorizer = get_image_colorizer(artistic=True)
+
+    # Convert the first frame from BGR to LAB color space
+    first_frame = cv2.imread(frames[0])
+    first_frame = cv2.cvtColor(first_frame, cv2.COLOR_BGR2LAB).astype("float32")
+
+    # Calculate the mean and standard deviation for the first frame
+    l_mean_first, l_std_first = calculate_mean_std(cv2.split(first_frame)[0])
 
     for frame in frames:
-        result = colorizer.get_transformed_image(frame, render_factor=35)  # Adjust render_factor if needed
+        result = colorizer.get_transformed_image(frame, render_factor=35, watermarked=False) 
 
         if previous_frame is not None:
             result = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
             previous_frame = cv2.cvtColor(np.array(previous_frame), cv2.COLOR_RGB2BGR)
-            result = color_transfer(previous_frame, result)
+            result = apply_color_transfer(previous_frame, result, l_mean_first, l_std_first)
             result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
 
         cv2.imwrite(os.path.join(output_dir, os.path.basename(frame)), cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR))
