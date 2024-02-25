@@ -9,6 +9,18 @@ import torch
 from deoldify.visualize import get_image_colorizer
 from PIL import Image
 
+def check_cuda_availability():
+    is_cuda_available = torch.cuda.is_available()
+    if is_cuda_available:
+        print("CUDA GPU is available for torch functions.")
+        torch.cuda.set_device(0)  # Set the default device to CUDA
+        print("Default device set to CUDA.")
+        print("Number of CUDA devices:", torch.cuda.device_count())
+        for i in range(torch.cuda.device_count()):
+            print(f"Device {i}: {torch.cuda.get_device_name(i)}")
+    else:
+        print("CUDA GPU is not available for torch functions.")
+
 def calculate_mean_std(x):
     return np.mean(x), np.std(x)
 
@@ -100,7 +112,13 @@ def colorize_frames(input_dir, output_dir):
     l_mean_first, l_std_first = calculate_mean_std(cv2.split(first_frame)[0])
 
     for frame in frames:
-        result = colorizer.get_transformed_image(frame, render_factor=35, watermarked=False) 
+        frame_data = cv2.imread(frame)
+        frame_data = torch.from_numpy(frame_data).cuda()  # Move data to GPU
+        print("Data device:", frame_data.device)  # Print data device
+
+        print("Current device before colorization:", torch.cuda.current_device())
+        result = colorizer.get_transformed_image(frame_data, render_factor=35, watermarked=False) 
+        print("Current device after colorization:", torch.cuda.current_device())
 
         if previous_frame is not None:
             result = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
@@ -128,6 +146,10 @@ def main(args):
     output_video = "colorized_video.mp4"
     
     if torch.cuda.is_available():
+        print("PyTorch can see the GPU")
+        print("GPU Details:")
+        print("Name:", torch.cuda.get_device_name(0))
+        print("PCI Bus ID:", torch.cuda.get_device_properties(0).pci_bus_id)
         torch.cuda.set_device(0)  # Assuming only one GPU, adjust if necessary
         print("Using GPU")
     else:
@@ -137,12 +159,14 @@ def main(args):
     extract_frames(video_path, raw_frames_dir)
     colorize_frames(raw_frames_dir, colorized_frames_dir)
     reassemble_video(colorized_frames_dir, output_video)
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Colorize video frames")
     parser.add_argument("--file", type=str, required=True, help="Path to the video file")
     return parser.parse_args()
 
+
 if __name__ == "__main__":
+    check_cuda_availability()
     args = parse_args()
+    print(torch.cuda.is_available())
     main(args)

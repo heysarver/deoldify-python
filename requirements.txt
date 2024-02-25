@@ -1,6 +1,6 @@
-deoldify
+argparse
+opencv-python
+numpy
+requests
 torch
-fastai
-transformers
-torch
-deoldify
+Pillow
