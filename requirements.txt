@@ -10,3 +10,4 @@ pandas
 scipy
 fastprogress
 python-dotenv
+tqdm
