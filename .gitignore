@@ -159,11 +159,11 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-
-models/
+models/*.pth
 raw_frames/
 colorized_frames/
 result_images/
 sample*
 Night.Nurse*
 colorized_video.mp4
+output/*.mp4

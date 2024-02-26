@@ -9,3 +9,4 @@ matplotlib
 pandas
 scipy
 fastprogress
+python-dotenv

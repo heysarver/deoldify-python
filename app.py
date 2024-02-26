@@ -6,6 +6,8 @@ import os
 import requests
 import sys
 import torch
+from dotenv import load_dotenv
+from tqdm import tqdm
 from PIL import Image
 from deoldify import device
 from deoldify.device_id import DeviceId
@@ -29,20 +31,16 @@ def calculate_mean_std(x):
 def download_file(url, filename):
     with open(filename, 'wb') as f:
         response = requests.get(url, stream=True)
-        total = response.headers.get('content-length')
+        total = int(response.headers.get('content-length', 0))
 
-        if total is None:
-            f.write(response.content)
-        else:
-            downloaded = 0
-            total = int(total)
-            for data in response.iter_content(chunk_size=max(int(total/1000), 1024*1024)):
-                downloaded += len(data)
-                f.write(data)
-                done = int(50*downloaded/total)
-                sys.stdout.write('\r[{}{}]'.format('█' * done, '.' * (50-done)))
-                sys.stdout.flush()
-    sys.stdout.write('\n')
+        progress_bar = tqdm(total=total, unit='iB', unit_scale=True)
+        for data in response.iter_content(chunk_size=1024):
+            size = f.write(data)
+            progress_bar.update(size)
+        progress_bar.close()
+
+        if total != 0 and progress_bar.n != total:
+            print("ERROR, something went wrong")
 
 
 def extract_frames(video_path, output_dir):
@@ -117,7 +115,7 @@ def colorize_frames(input_dir, output_dir):
     first_frame = cv2.cvtColor(first_frame, cv2.COLOR_BGR2LAB).astype("float32")
     l_mean_first, l_std_first = calculate_mean_std(cv2.split(first_frame)[0])
 
-    for frame in frames:
+    for frame in tqdm(frames, desc="Colorizing frames", unit="frame"):
         result = colorizer.get_transformed_image(frame, render_factor=35, watermarked=False)
 
         if previous_frame is not None:
@@ -130,15 +128,17 @@ def colorize_frames(input_dir, output_dir):
         previous_frame = Image.fromarray(cv2.cvtColor(np.array(result), cv2.COLOR_BGR2RGB))
 
 
-def reassemble_video(input_dir, output_video, original_video):
-    temp_video = "temp_video.mp4"
+def reassemble_video(input_dir, output_video, original_video, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    temp_video = os.path.join(output_dir, "temp_video.mp4")
     cmd_video = f"ffmpeg -r 24 -i \"{input_dir}/frame_%09d.png\" -vcodec libx264 \"{temp_video}\""
     subprocess.run(cmd_video, shell=True, check=True)
 
     cmd_audio = f"ffmpeg -i \"{original_video}\" -vn -acodec copy original_audio.aac"
     subprocess.run(cmd_audio, shell=True, check=True)
 
-    cmd_merge = f"ffmpeg -i \"{temp_video}\" -i original_audio.aac -c:v copy -c:a aac \"{output_video}\""
+    output_video_path = os.path.join(output_dir, output_video)
+    cmd_merge = f"ffmpeg -i \"{temp_video}\" -i original_audio.aac -c:v copy -c:a aac \"{output_video_path}\""
     subprocess.run(cmd_merge, shell=True, check=True)
 
     os.remove(temp_video)
@@ -156,25 +156,26 @@ def download_model(force_download):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Colorize video frames")
-    parser.add_argument("--file", type=str, required=True, help="Path to the video file")
-    parser.add_argument("--force-download-model", action='store_true', help="Force download the model even if it exists")
+    parser.add_argument("--file", type=str, default=os.getenv('FILE'), help="Path to the video file")
+    parser.add_argument("--force-download-model", action='store_true', default=os.getenv('FORCE_DOWNLOAD_MODEL', False), help="Force download the model even if it exists")
     return parser.parse_args()
 
 
-def main(args):
+if __name__ == "__main__":
+    load_dotenv()
+    check_cuda()
+
+    args = parse_args()
+    
     os.makedirs('models', exist_ok=True)
     input_video = args.file
+    force_download_model = args.force_download_model
     raw_frames_dir = "raw_frames"
     colorized_frames_dir = "colorized_frames"
     output_video = "colorized_video.mp4"
+    output_dir = "output"
     
-    download_model(force_download=args.force_download_model)
+    download_model(force_download=force_download_model)
     extract_frames(input_video, raw_frames_dir)
     colorize_frames(raw_frames_dir, colorized_frames_dir)
-    reassemble_video(colorized_frames_dir, output_video, input_video)
-
-
-if __name__ == "__main__":
-    check_cuda()
-    args = parse_args()
-    main(args)
+    reassemble_video(colorized_frames_dir, output_video, input_video, output_dir)

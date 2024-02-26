@@ -5,8 +5,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      - FILE=/app/sample.mp4
     volumes:
-      - ./models:/app/models
+      - models:/app/models
+      - output:/app/output
+      - sample.mp4:/app/sample.mp4 # input file
+      # - colorized_frames:/app/colorized_frames
+      # - raw_frames:/app/raw_frames
     deploy:
       resources:
         reservations:
