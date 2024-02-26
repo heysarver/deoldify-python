@@ -119,9 +119,9 @@ def colorize_frames(input_dir, output_dir):
         result = colorizer.get_transformed_image(frame, render_factor=35, watermarked=False)
 
         if previous_frame is not None:
-            result = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
-            previous_frame = cv2.cvtColor(np.array(previous_frame), cv2.COLOR_RGB2BGR)
-            result = apply_color_transfer(previous_frame, result, l_mean_first, l_std_first)
+            result_bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
+            previous_frame_bgr = cv2.cvtColor(np.array(previous_frame), cv2.COLOR_RGB2BGR)
+            result = apply_color_transfer(previous_frame_bgr, result_bgr, l_mean_first, l_std_first)
             result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
 
         cv2.imwrite(os.path.join(output_dir, os.path.basename(frame)), cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR))
