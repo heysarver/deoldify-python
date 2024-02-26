@@ -128,8 +128,13 @@ def colorize_frames(input_dir, output_dir):
         previous_frame = Image.fromarray(cv2.cvtColor(np.array(result), cv2.COLOR_BGR2RGB))
 
 
-def reassemble_video(input_dir, output_video, original_video, output_dir):
+def reassemble_video(input_dir, output_video, original_video, output_dir, force_overwrite_output):
     os.makedirs(output_dir, exist_ok=True)
+    output_video_path = os.path.join(output_dir, output_video)
+    
+    if os.path.exists(output_video_path) and force_overwrite_output:
+        os.remove(output_video_path)
+    
     temp_video = os.path.join(output_dir, "temp_video.mp4")
     cmd_video = f"ffmpeg -r 24 -i \"{input_dir}/frame_%09d.png\" -vcodec libx264 \"{temp_video}\""
     subprocess.run(cmd_video, shell=True, check=True)
@@ -137,7 +142,6 @@ def reassemble_video(input_dir, output_video, original_video, output_dir):
     cmd_audio = f"ffmpeg -i \"{original_video}\" -vn -acodec copy original_audio.aac"
     subprocess.run(cmd_audio, shell=True, check=True)
 
-    output_video_path = os.path.join(output_dir, output_video)
     cmd_merge = f"ffmpeg -i \"{temp_video}\" -i original_audio.aac -c:v copy -c:a aac \"{output_video_path}\""
     subprocess.run(cmd_merge, shell=True, check=True)
 
@@ -158,6 +162,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Colorize video frames")
     parser.add_argument("--file", type=str, default=os.getenv('FILE'), help="Path to the video file")
     parser.add_argument("--force-download-model", action='store_true', default=os.getenv('FORCE_DOWNLOAD_MODEL', False), help="Force download the model even if it exists")
+    parser.add_argument("--force-overwrite-output", action='store_true', default=os.getenv('FORCE_OVERWRITE_OUTPUT', False), help="Force overwrite the output file even if it exists")
     return parser.parse_args()
 
 
@@ -170,6 +175,7 @@ if __name__ == "__main__":
     os.makedirs('models', exist_ok=True)
     input_video = args.file
     force_download_model = args.force_download_model
+    force_overwrite_output = args.force_overwrite_output
     raw_frames_dir = "raw_frames"
     colorized_frames_dir = "colorized_frames"
     output_video = "colorized_video.mp4"
@@ -178,4 +184,4 @@ if __name__ == "__main__":
     download_model(force_download=force_download_model)
     extract_frames(input_video, raw_frames_dir)
     colorize_frames(raw_frames_dir, colorized_frames_dir)
-    reassemble_video(colorized_frames_dir, output_video, input_video, output_dir)
+    reassemble_video(colorized_frames_dir, output_video, input_video, output_dir, force_overwrite_output)
