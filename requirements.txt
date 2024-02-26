@@ -4,3 +4,8 @@ numpy
 requests
 torch
 Pillow
+deoldify
+matplotlib
+pandas
+scipy
+fastprogress

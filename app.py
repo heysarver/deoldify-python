@@ -6,23 +6,25 @@ import os
 import requests
 import sys
 import torch
-from deoldify.visualize import get_image_colorizer
 from PIL import Image
+from deoldify import device
+from deoldify.device_id import DeviceId
+device.set(device=DeviceId.GPU0) # this has to be set before the next from/import
+from deoldify.visualize import get_image_colorizer
 
-def check_cuda_availability():
-    is_cuda_available = torch.cuda.is_available()
-    if is_cuda_available:
-        print("CUDA GPU is available for torch functions.")
-        torch.cuda.set_device(0)  # Set the default device to CUDA
-        print("Default device set to CUDA.")
-        print("Number of CUDA devices:", torch.cuda.device_count())
-        for i in range(torch.cuda.device_count()):
-            print(f"Device {i}: {torch.cuda.get_device_name(i)}")
+
+def check_cuda():
+    if torch.cuda.is_available():
+        print("CUDA device is available.")
+        return True
     else:
-        print("CUDA GPU is not available for torch functions.")
+        print("No CUDA device available.")
+        return False
+    
 
 def calculate_mean_std(x):
     return np.mean(x), np.std(x)
+
 
 def download_file(url, filename):
     with open(filename, 'wb') as f:
@@ -42,11 +44,13 @@ def download_file(url, filename):
                 sys.stdout.flush()
     sys.stdout.write('\n')
 
+
 def extract_frames(video_path, output_dir):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    cmd = f"ffmpeg -i \"{video_path}\" \"{output_dir}/frame_%04d.png\""
+    cmd = f"ffmpeg -i \"{video_path}\" \"{output_dir}/frame_%09d.png\""
     subprocess.run(cmd, shell=True, check=True)
+
 
 def color_transfer(source, target):
     source = cv2.cvtColor(source, cv2.COLOR_BGR2LAB).astype("float32")
@@ -80,6 +84,7 @@ def color_transfer(source, target):
 
     return transfer
 
+
 def apply_color_transfer(previous_frame, frame, l_mean_first, l_std_first):
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB).astype("float32")
     previous_frame = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2LAB).astype("float32")
@@ -99,26 +104,21 @@ def apply_color_transfer(previous_frame, frame, l_mean_first, l_std_first):
 
     return transfer
 
+
 def colorize_frames(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
     frames = sorted([os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith('.png')])
     previous_frame = None
 
-    colorizer = get_image_colorizer(artistic=True)
+    colorizer = get_image_colorizer(artistic=False, render_factor=35)
 
     first_frame = cv2.imread(frames[0])
     first_frame = cv2.cvtColor(first_frame, cv2.COLOR_BGR2LAB).astype("float32")
     l_mean_first, l_std_first = calculate_mean_std(cv2.split(first_frame)[0])
 
     for frame in frames:
-        frame_data = cv2.imread(frame)
-        frame_data = torch.from_numpy(frame_data).cuda()  # Move data to GPU
-        print("Data device:", frame_data.device)  # Print data device
-
-        print("Current device before colorization:", torch.cuda.current_device())
-        result = colorizer.get_transformed_image(frame_data, render_factor=35, watermarked=False) 
-        print("Current device after colorization:", torch.cuda.current_device())
+        result = colorizer.get_transformed_image(frame, render_factor=35, watermarked=False)
 
         if previous_frame is not None:
             result = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
@@ -129,44 +129,52 @@ def colorize_frames(input_dir, output_dir):
         cv2.imwrite(os.path.join(output_dir, os.path.basename(frame)), cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR))
         previous_frame = Image.fromarray(cv2.cvtColor(np.array(result), cv2.COLOR_BGR2RGB))
 
-def reassemble_video(input_dir, output_video):
-    cmd = f"ffmpeg -r 24 -i \"{input_dir}/frame_%04d.png\" -vcodec libx264 \"{output_video}\""
-    subprocess.run(cmd, shell=True, check=True)
 
-def download_model():
-    url = "https://huggingface.co/spaces/aryadytm/photo-colorization/resolve/main/models/ColorizeArtistic_gen.pth?download=true"
-    filename = "models/ColorizeArtistic_gen.pth"
-    download_file(url, filename)
+def reassemble_video(input_dir, output_video, original_video):
+    temp_video = "temp_video.mp4"
+    cmd_video = f"ffmpeg -r 24 -i \"{input_dir}/frame_%09d.png\" -vcodec libx264 \"{temp_video}\""
+    subprocess.run(cmd_video, shell=True, check=True)
+
+    cmd_audio = f"ffmpeg -i \"{original_video}\" -vn -acodec copy original_audio.aac"
+    subprocess.run(cmd_audio, shell=True, check=True)
+
+    cmd_merge = f"ffmpeg -i \"{temp_video}\" -i original_audio.aac -c:v copy -c:a aac \"{output_video}\""
+    subprocess.run(cmd_merge, shell=True, check=True)
+
+    os.remove(temp_video)
+    os.remove("original_audio.aac")
+
+
+def download_model(force_download):
+    url = "https://huggingface.co/spensercai/DeOldify/resolve/main/ColorizeStable_gen.pth?download=true"
+    filename = "models/ColorizeStable_gen.pth"
+    if os.path.exists(filename) and not force_download:
+        print(f"Model file {filename} already exists. Skipping download.")
+    else:
+        download_file(url, filename)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Colorize video frames")
+    parser.add_argument("--file", type=str, required=True, help="Path to the video file")
+    parser.add_argument("--force-download-model", action='store_true', help="Force download the model even if it exists")
+    return parser.parse_args()
+
 
 def main(args):
     os.makedirs('models', exist_ok=True)
-    video_path = args.file
+    input_video = args.file
     raw_frames_dir = "raw_frames"
     colorized_frames_dir = "colorized_frames"
     output_video = "colorized_video.mp4"
     
-    if torch.cuda.is_available():
-        print("PyTorch can see the GPU")
-        print("GPU Details:")
-        print("Name:", torch.cuda.get_device_name(0))
-        print("PCI Bus ID:", torch.cuda.get_device_properties(0).pci_bus_id)
-        torch.cuda.set_device(0)  # Assuming only one GPU, adjust if necessary
-        print("Using GPU")
-    else:
-        print("Using CPU")
-
-    download_model()
-    extract_frames(video_path, raw_frames_dir)
+    download_model(force_download=args.force_download_model)
+    extract_frames(input_video, raw_frames_dir)
     colorize_frames(raw_frames_dir, colorized_frames_dir)
-    reassemble_video(colorized_frames_dir, output_video)
-def parse_args():
-    parser = argparse.ArgumentParser(description="Colorize video frames")
-    parser.add_argument("--file", type=str, required=True, help="Path to the video file")
-    return parser.parse_args()
+    reassemble_video(colorized_frames_dir, output_video, input_video)
 
 
 if __name__ == "__main__":
-    check_cuda_availability()
+    check_cuda()
     args = parse_args()
-    print(torch.cuda.is_available())
     main(args)
