@@ -50,37 +50,37 @@ def extract_frames(video_path, output_dir):
     subprocess.run(cmd, shell=True, check=True)
 
 
-def color_transfer(source, target):
-    source = cv2.cvtColor(source, cv2.COLOR_BGR2LAB).astype("float32")
-    target = cv2.cvtColor(target, cv2.COLOR_BGR2LAB).astype("float32")
+# def color_transfer(source, target):
+#     source = cv2.cvtColor(source, cv2.COLOR_BGR2LAB).astype("float32")
+#     target = cv2.cvtColor(target, cv2.COLOR_BGR2LAB).astype("float32")
 
-    l_source, a_source, b_source = cv2.split(source)
-    l_target, a_target, b_target = cv2.split(target)
+#     l_source, a_source, b_source = cv2.split(source)
+#     l_target, a_target, b_target = cv2.split(target)
 
-    l_mean_source, l_std_source = calculate_mean_std(l_source)
-    a_mean_source, a_std_source = calculate_mean_std(a_source)
-    b_mean_source, b_std_source = calculate_mean_std(b_source)
+#     l_mean_source, l_std_source = calculate_mean_std(l_source)
+#     a_mean_source, a_std_source = calculate_mean_std(a_source)
+#     b_mean_source, b_std_source = calculate_mean_std(b_source)
 
-    l_mean_target, l_std_target = calculate_mean_std(l_target)
-    a_mean_target, a_std_target = calculate_mean_std(a_target)
-    b_mean_target, b_std_target = calculate_mean_std(b_target)
+#     l_mean_target, l_std_target = calculate_mean_std(l_target)
+#     a_mean_target, a_std_target = calculate_mean_std(a_target)
+#     b_mean_target, b_std_target = calculate_mean_std(b_target)
 
-    l_source -= l_mean_source
-    a_source -= a_mean_source
-    b_source -= b_mean_source
+#     l_source -= l_mean_source
+#     a_source -= a_mean_source
+#     b_source -= b_mean_source
 
-    l_source *= (l_std_target / l_std_source)
-    a_source *= (a_std_target / a_std_source)
-    b_source *= (b_std_target / b_std_source)
+#     l_source *= (l_std_target / l_std_source)
+#     a_source *= (a_std_target / a_std_source)
+#     b_source *= (b_std_target / b_std_source)
 
-    l_source += l_mean_target
-    a_source += a_mean_target
-    b_source += b_mean_target
+#     l_source += l_mean_target
+#     a_source += a_mean_target
+#     b_source += b_mean_target
 
-    transfer = cv2.merge([l_source, a_source, b_source])
-    transfer = cv2.cvtColor(np.clip(transfer, 0, 255).astype("uint8"), cv2.COLOR_LAB2BGR)
+#     transfer = cv2.merge([l_source, a_source, b_source])
+#     transfer = cv2.cvtColor(np.clip(transfer, 0, 255).astype("uint8"), cv2.COLOR_LAB2BGR)
 
-    return transfer
+#     return transfer
 
 
 def apply_color_transfer(previous_frame, frame, l_mean_first, l_std_first):
@@ -103,7 +103,7 @@ def apply_color_transfer(previous_frame, frame, l_mean_first, l_std_first):
     return transfer
 
 
-def colorize_frames(input_dir, output_dir):
+def colorize_frames(input_dir, output_dir, independent_colorization=False):
     os.makedirs(output_dir, exist_ok=True)
 
     frames = sorted([os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith('.png')])
@@ -118,7 +118,7 @@ def colorize_frames(input_dir, output_dir):
     for frame in tqdm(frames, desc="Colorizing frames", unit="frame"):
         result = colorizer.get_transformed_image(frame, render_factor=35, watermarked=False)
 
-        if previous_frame is not None:
+        if previous_frame is not None and not independent_colorization:
             result_bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
             previous_frame_bgr = cv2.cvtColor(np.array(previous_frame), cv2.COLOR_RGB2BGR)
             result = apply_color_transfer(previous_frame_bgr, result_bgr, l_mean_first, l_std_first)
@@ -163,6 +163,7 @@ def parse_args():
     parser.add_argument("--file", type=str, default=os.getenv('FILE'), help="Path to the video file")
     parser.add_argument("--force-download-model", action='store_true', default=os.getenv('FORCE_DOWNLOAD_MODEL', False), help="Force download the model even if it exists")
     parser.add_argument("--force-overwrite-output", action='store_true', default=os.getenv('FORCE_OVERWRITE_OUTPUT', False), help="Force overwrite the output file even if it exists")
+    parser.add_argument("--independent-colorization", action='store_true', default=os.getenv('INDEPENDENT_COLORIZATION', False), help="Colorize each frame independently without applying color transfer")
     return parser.parse_args()
 
 
@@ -176,6 +177,7 @@ if __name__ == "__main__":
     input_video = args.file
     force_download_model = args.force_download_model
     force_overwrite_output = args.force_overwrite_output
+    independent_colorization = args.independent_colorization
     raw_frames_dir = "raw_frames"
     colorized_frames_dir = "colorized_frames"
     output_video = "colorized_video.mp4"
@@ -183,5 +185,5 @@ if __name__ == "__main__":
     
     download_model(force_download=force_download_model)
     extract_frames(input_video, raw_frames_dir)
-    colorize_frames(raw_frames_dir, colorized_frames_dir)
+    colorize_frames(raw_frames_dir, colorized_frames_dir, independent_colorization)
     reassemble_video(colorized_frames_dir, output_video, input_video, output_dir, force_overwrite_output)
