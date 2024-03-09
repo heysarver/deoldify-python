@@ -9,12 +9,14 @@ services:
     environment:
       - FILE=/app/sample.mp4
       - FORCE_OVERWRITE_OUTPUT=True
+      - INDEPENDENT_COLORIZATION=True
     volumes:
       - ./models:/app/models
       - ./output:/app/output
-      - ./sample.mp4:/app/sample.mp4 # input file
+      - ./Night.Nurse.1931.1080p.WEB-DL.DD2.0.H.264-SbR.mkv:/app/sample.mp4 # input file
       - ./colorized_frames:/app/colorized_frames
       - ./raw_frames:/app/raw_frames
+      - ./app.py:/app/app.py
     deploy:
       resources:
         reservations:

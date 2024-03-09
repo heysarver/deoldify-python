@@ -5,6 +5,7 @@ import subprocess
 import os
 import requests
 import sys
+import time
 import torch
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -12,7 +13,7 @@ from PIL import Image
 from deoldify import device
 from deoldify.device_id import DeviceId
 device.set(device=DeviceId.GPU0) # this has to be set before the next from/import
-from deoldify.visualize import get_image_colorizer
+from deoldify.visualize import get_image_colorizer, get_video_colorizer
 
 
 def check_cuda():
@@ -46,41 +47,8 @@ def download_file(url, filename):
 def extract_frames(video_path, output_dir):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    cmd = f"ffmpeg -i \"{video_path}\" \"{output_dir}/frame_%09d.png\""
+    cmd = f"ffmpeg -hwaccel nvdec -i \"{video_path}\" \"{output_dir}/frame_%09d.png\""
     subprocess.run(cmd, shell=True, check=True)
-
-
-# def color_transfer(source, target):
-#     source = cv2.cvtColor(source, cv2.COLOR_BGR2LAB).astype("float32")
-#     target = cv2.cvtColor(target, cv2.COLOR_BGR2LAB).astype("float32")
-
-#     l_source, a_source, b_source = cv2.split(source)
-#     l_target, a_target, b_target = cv2.split(target)
-
-#     l_mean_source, l_std_source = calculate_mean_std(l_source)
-#     a_mean_source, a_std_source = calculate_mean_std(a_source)
-#     b_mean_source, b_std_source = calculate_mean_std(b_source)
-
-#     l_mean_target, l_std_target = calculate_mean_std(l_target)
-#     a_mean_target, a_std_target = calculate_mean_std(a_target)
-#     b_mean_target, b_std_target = calculate_mean_std(b_target)
-
-#     l_source -= l_mean_source
-#     a_source -= a_mean_source
-#     b_source -= b_mean_source
-
-#     l_source *= (l_std_target / l_std_source)
-#     a_source *= (a_std_target / a_std_source)
-#     b_source *= (b_std_target / b_std_source)
-
-#     l_source += l_mean_target
-#     a_source += a_mean_target
-#     b_source += b_mean_target
-
-#     transfer = cv2.merge([l_source, a_source, b_source])
-#     transfer = cv2.cvtColor(np.clip(transfer, 0, 255).astype("uint8"), cv2.COLOR_LAB2BGR)
-
-#     return transfer
 
 
 def apply_color_transfer(previous_frame, frame, l_mean_first, l_std_first):
@@ -136,22 +104,32 @@ def reassemble_video(input_dir, output_video, original_video, output_dir, force_
         os.remove(output_video_path)
     
     temp_video = os.path.join(output_dir, "temp_video.mp4")
-    cmd_video = f"ffmpeg -r 24 -i \"{input_dir}/frame_%09d.png\" -vcodec libx264 \"{temp_video}\""
+    cmd_video = f"ffmpeg -r 24 -i \"{input_dir}/frame_%09d.png\" -vcodec h264_nvenc \"{temp_video}\""
     subprocess.run(cmd_video, shell=True, check=True)
 
-    cmd_audio = f"ffmpeg -i \"{original_video}\" -vn -acodec copy original_audio.aac"
+    cmd_audio = f"ffmpeg -hwaccel nvdec -i \"{original_video}\" -vn -acodec aac original_audio.aac"
     subprocess.run(cmd_audio, shell=True, check=True)
 
-    cmd_merge = f"ffmpeg -i \"{temp_video}\" -i original_audio.aac -c:v copy -c:a aac \"{output_video_path}\""
+    cmd_merge = f"ffmpeg -hwaccel nvdec -i \"{temp_video}\" -i original_audio.aac -c:v copy -c:a aac \"{output_video_path}\""
     subprocess.run(cmd_merge, shell=True, check=True)
 
     os.remove(temp_video)
     os.remove("original_audio.aac")
 
 
-def download_model(force_download):
-    url = "https://huggingface.co/spensercai/DeOldify/resolve/main/ColorizeStable_gen.pth?download=true"
-    filename = "models/ColorizeStable_gen.pth"
+def download_model(model_type, force_download):
+    model_urls = {
+        "image": "https://huggingface.co/spensercai/DeOldify/resolve/main/ColorizeStable_gen.pth?download=true",
+        "video": "https://huggingface.co/spensercai/DeOldify/resolve/main/ColorizeVideo_gen.pth?download=true"
+    }
+    model_files = {
+        "image": "models/ColorizeStable_gen.pth",
+        "video": "models/ColorizeVideo_gen.pth"
+    }
+
+    url = model_urls[model_type]
+    filename = model_files[model_type]
+
     if os.path.exists(filename) and not force_download:
         print(f"Model file {filename} already exists. Skipping download.")
     else:
@@ -164,6 +142,7 @@ def parse_args():
     parser.add_argument("--force-download-model", action='store_true', default=os.getenv('FORCE_DOWNLOAD_MODEL', False), help="Force download the model even if it exists")
     parser.add_argument("--force-overwrite-output", action='store_true', default=os.getenv('FORCE_OVERWRITE_OUTPUT', False), help="Force overwrite the output file even if it exists")
     parser.add_argument("--independent-colorization", action='store_true', default=os.getenv('INDEPENDENT_COLORIZATION', False), help="Colorize each frame independently without applying color transfer")
+    parser.add_argument("--use-video-colorizer", action='store_true', default=os.getenv('USE_VIDEO_COLORIZER', False), help="Use video colorizer instead of image colorizer")
     return parser.parse_args()
 
 
@@ -178,12 +157,18 @@ if __name__ == "__main__":
     force_download_model = args.force_download_model
     force_overwrite_output = args.force_overwrite_output
     independent_colorization = args.independent_colorization
+    use_video_colorizer = args.use_video_colorizer
     raw_frames_dir = "raw_frames"
     colorized_frames_dir = "colorized_frames"
     output_video = "colorized_video.mp4"
     output_dir = "output"
     
-    download_model(force_download=force_download_model)
-    extract_frames(input_video, raw_frames_dir)
-    colorize_frames(raw_frames_dir, colorized_frames_dir, independent_colorization)
-    reassemble_video(colorized_frames_dir, output_video, input_video, output_dir, force_overwrite_output)
+    if use_video_colorizer:
+        download_model("video", force_download=force_download_model)
+        colorizer = get_video_colorizer(render_factor=35)
+        colorizer.colorize_from_file_name(input_video, render_factor=35, watermarked=False)
+    else:
+        download_model("image", force_download=force_download_model)
+        extract_frames(input_video, raw_frames_dir)
+        colorize_frames(raw_frames_dir, colorized_frames_dir, independent_colorization)
+        reassemble_video(colorized_frames_dir, output_video, input_video, output_dir, force_overwrite_output)
